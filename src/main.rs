@@ -37,6 +37,7 @@ use std::{
 use walkdir::WalkDir;
 use junk;
 use dialoguer::Confirm;
+use imagesize;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -48,15 +49,19 @@ struct Args {
     compare_dir: PathBuf,
 
     #[arg(long, action = ArgAction::SetTrue)]
+    check_only_image_size: bool,
+
+    #[arg(long, action = ArgAction::SetTrue)]
     run: bool,
 }
 
 fn main() {
     let args = Args::parse();
     let dry_run = !args.run;
+    let check_only_image_size = args.check_only_image_size;
 
     if !dry_run {
-        if !Confirm::new().with_prompt(format!("Do you really want to delete files into {:?}?", args.source_dir)).interact().unwrap_or(false) {
+        if !Confirm::new().with_prompt(format!("Do you really want to delete files in {:?}?", args.source_dir)).interact().unwrap_or(false) {
             return;
         }
     };
@@ -69,10 +74,10 @@ fn main() {
         },
     };
 
-    delete_duplicate_files(&args.source_dir, &filename_path_map, dry_run);
+    delete_duplicate_files(&args.source_dir, &filename_path_map, dry_run, check_only_image_size);
 }
 
-fn delete_duplicate_files(dir: &Path, filename_path_map: &HashMap<OsString, HashSet<PathBuf>>, dry_run: bool) -> bool {
+fn delete_duplicate_files(dir: &Path, filename_path_map: &HashMap<OsString, HashSet<PathBuf>>, dry_run: bool, check_only_image_size: bool) -> bool {
     let paths = match read_dir(dir) {
         Ok(paths) => paths,
         Err(err) => {
@@ -91,7 +96,7 @@ fn delete_duplicate_files(dir: &Path, filename_path_map: &HashMap<OsString, Hash
             },
         };
         if path.is_dir() {
-            let children_all_deleted = delete_duplicate_files(&path, filename_path_map, dry_run);
+            let children_all_deleted = delete_duplicate_files(&path, filename_path_map, dry_run, check_only_image_size);
             if children_all_deleted {
                 println!("Delete Empty Dir {:?} (dry_run={:?})", path, dry_run);
                 if !dry_run {
@@ -128,7 +133,7 @@ fn delete_duplicate_files(dir: &Path, filename_path_map: &HashMap<OsString, Hash
                 }
             } else {
                 if let Some(current_paths) = filename_path_map.get(filename) {
-                    let exists_same_file = current_paths.iter().any(|current_path| is_same_file(current_path, &path));
+                    let exists_same_file = current_paths.iter().any(|current_path| is_same_file(current_path, &path, check_only_image_size));
                     if exists_same_file {
                         println!("Delete Duplicated File {:?} (dry_run={:?})", path, dry_run);
                         if !dry_run {
@@ -141,7 +146,7 @@ fn delete_duplicate_files(dir: &Path, filename_path_map: &HashMap<OsString, Hash
                             };
                         };
                     } else {
-                        println!("Different content {:?}", path);
+                        println!("Different content {:?} with {:?}", path, current_paths);
                         all_deleted = false
                     }
                 } else {
@@ -173,7 +178,18 @@ fn get_filename_path_map(dir: &Path) -> Result<HashMap<OsString, HashSet<PathBuf
     Ok(map)
 }
 
-fn is_same_file(a: &Path, b: &Path) -> bool {
+fn is_same_file(a: &Path, b: &Path, check_only_image_size: bool) -> bool {
+    if check_only_image_size {
+        let a_size = imagesize::size(a);
+        let b_size = imagesize::size(b);
+        match (a_size, b_size) {
+            (Ok(a_size), Ok(b_size)) => {
+                return a_size == b_size
+            },
+            _ => (),
+        };
+    };
+
     let a_size = match a.metadata() {
         Ok(metadata) => metadata.len(),
         Err(_) => return false,
@@ -184,7 +200,7 @@ fn is_same_file(a: &Path, b: &Path) -> bool {
     };
     if a_size != b_size {
         return false;
-    }
+    };
 
     let a_file = match File::open(a) {
         Ok(file) => file,
