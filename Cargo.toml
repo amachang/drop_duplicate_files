@@ -1,0 +1,12 @@
+[package]
+name = "drop_duplicate_files"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.3.0", features = ["derive"] }
+dialoguer = "0.10.4"
+junk = "0.1.2"
+walkdir = "2.3.3"
